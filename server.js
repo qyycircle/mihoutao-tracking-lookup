@@ -13,10 +13,9 @@ const PORT = process.env.PORT || 3000;
 // 允许前端静态文件
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 简单健康检查
-app.get('/health', (req, res) => {
-  res.json({ ok: true });
-});
+// 健康检查（两个路径都支持，避免混淆）
+app.get('/health', (req, res) => res.json({ ok: true }));
+app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // 读取CSV并建立内存索引
 let records = [];
@@ -28,7 +27,6 @@ function loadCsv() {
     fs.createReadStream(csvPath)
       .pipe(parse({ columns: true, trim: true }))
       .on('data', (row) => {
-        // 期望表头: trackingNo, name, phone
         const trackingNo = String(row.trackingNo || row.tracking || row.no || '').trim();
         const name = String(row.name || row.sender || '').trim();
         const phone = String(row.phone || row.mobile || '').trim();
@@ -38,9 +36,13 @@ function loadCsv() {
       })
       .on('end', () => {
         records = newRecords;
+        console.log(`[CSV] 加载完成，记录数: ${records.length}`);
         resolve();
       })
-      .on('error', (err) => reject(err));
+      .on('error', (err) => {
+        console.error('[CSV] 加载失败:', err);
+        reject(err);
+      });
   });
 }
 
@@ -49,7 +51,7 @@ loadCsv().catch((e) => {
   console.error('CSV 加载失败:', e);
 });
 
-// 提供手动刷新接口（可选）
+// 手动刷新
 app.post('/api/reload', async (req, res) => {
   try {
     await loadCsv();
@@ -57,6 +59,11 @@ app.post('/api/reload', async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e) });
   }
+});
+
+// 数据统计/排查
+app.get('/api/stats', (req, res) => {
+  res.json({ ok: true, count: records.length, hasCsv: fs.existsSync(csvPath), csvPath });
 });
 
 // 搜索接口：支持按手机号或姓名
@@ -69,7 +76,6 @@ app.get('/api/search', (req, res) => {
     return res.status(400).json({ ok: false, message: '请提供手机号或寄件人姓名' });
   }
 
-  // 模糊匹配：手机号支持尾号匹配，姓名支持包含匹配
   const results = records.filter((r) => {
     const phoneMatch = qPhone ? r.phone.includes(qPhone) || r.phone.endsWith(qPhone) : true;
     const nameMatch = qName ? r.name.includes(qName) : true;
@@ -81,4 +87,4 @@ app.get('/api/search', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-}); 
+});
