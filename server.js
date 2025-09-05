@@ -17,6 +17,18 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (req, res) => res.json({ ok: true }));
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
+// 手机号脱敏函数
+function maskPhone(phone) {
+  if (!phone || phone.length < 7) return phone;
+  
+  // 保留前3位和后4位，中间用*号替换
+  const start = phone.substring(0, 3);
+  const end = phone.substring(phone.length - 4);
+  const middle = '*'.repeat(phone.length - 7);
+  
+  return start + middle + end;
+}
+
 // 读取CSV并建立内存索引
 let records = [];
 const csvPath = path.join(__dirname, 'data', 'data.csv');
@@ -111,12 +123,18 @@ app.get('/api/search', (req, res) => {
     return phoneMatch && nameMatch;
   });
 
+  // 对结果进行脱敏处理
+  const maskedResults = results.map(r => ({
+    ...r,
+    phone: maskPhone(r.phone)
+  }));
+
   console.log(`[SEARCH] 找到 ${results.length} 条记录`);
   if (results.length > 0) {
     console.log(`[SEARCH] 匹配记录:`, results.slice(0, 3));
   }
   
-  res.json({ ok: true, total: results.length, results });
+  res.json({ ok: true, total: results.length, results: maskedResults });
 });
 
 app.listen(PORT, () => {
