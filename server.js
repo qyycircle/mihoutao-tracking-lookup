@@ -23,22 +23,38 @@ const csvPath = path.join(__dirname, 'data', 'data.csv');
 
 function loadCsv() {
   return new Promise((resolve, reject) => {
+    console.log(`[CSV] 开始加载文件: ${csvPath}`);
+    
+    if (!fs.existsSync(csvPath)) {
+      console.error(`[CSV] 文件不存在: ${csvPath}`);
+      return reject(new Error(`CSV文件不存在: ${csvPath}`));
+    }
+
     const newRecords = [];
+    let lineCount = 0;
+    
     fs.createReadStream(csvPath)
-      .pipe(parse({ columns: true, trim: true }))
+      .pipe(parse({ 
+        columns: true, 
+        trim: true,
+        skip_empty_lines: true,
+        skip_records_with_error: true
+      }))
       .on('data', (row) => {
+        lineCount++;
         const trackingNo = String(row.trackingNo || row.tracking || row.no || '').trim();
         const name = String(row.name || row.sender || '').trim();
         const phone = String(row.phone || row.mobile || '').trim();
-        if (trackingNo && (name || phone)) {
+        
+        // 只要有快递单号就添加记录
+        if (trackingNo) {
           newRecords.push({ trackingNo, name, phone });
         }
       })
       .on('end', () => {
         records = newRecords;
-        console.log(`[CSV] 加载完成，记录数: ${records.length}`);
-        // 打印前几条记录用于调试
-        console.log('[CSV] 前5条记录:', records.slice(0, 5));
+        console.log(`[CSV] 加载完成 - 总行数: ${lineCount}, 有效记录: ${records.length}`);
+        console.log(`[CSV] 前3条记录:`, records.slice(0, 3));
         resolve();
       })
       .on('error', (err) => {
@@ -70,7 +86,8 @@ app.get('/api/stats', (req, res) => {
     count: records.length, 
     hasCsv: fs.existsSync(csvPath), 
     csvPath,
-    sampleRecords: records.slice(0, 3) // 返回前3条记录用于调试
+    sampleRecords: records.slice(0, 5),
+    allNames: records.map(r => r.name).slice(0, 10) // 显示前10个姓名用于调试
   });
 });
 
@@ -81,25 +98,24 @@ app.get('/api/search', (req, res) => {
   const qName = String(name).trim();
 
   console.log(`[SEARCH] 查询条件 - 姓名: "${qName}", 手机: "${qPhone}"`);
+  console.log(`[SEARCH] 当前记录数: ${records.length}`);
 
   if (!qPhone && !qName) {
     return res.status(400).json({ ok: false, message: '请提供手机号或寄件人姓名' });
   }
 
-  // 改进搜索逻辑：更宽松的匹配
+  // 搜索逻辑
   const results = records.filter((r) => {
-    const phoneMatch = qPhone ? (r.phone.includes(qPhone) || r.phone.endsWith(qPhone)) : true;
+    const phoneMatch = qPhone ? r.phone.includes(qPhone) : true;
     const nameMatch = qName ? r.name.includes(qName) : true;
-    
-    // 调试日志
-    if (qName && r.name.includes(qName)) {
-      console.log(`[SEARCH] 匹配到记录: ${r.name} - ${r.trackingNo}`);
-    }
-    
     return phoneMatch && nameMatch;
   });
 
   console.log(`[SEARCH] 找到 ${results.length} 条记录`);
+  if (results.length > 0) {
+    console.log(`[SEARCH] 匹配记录:`, results.slice(0, 3));
+  }
+  
   res.json({ ok: true, total: results.length, results });
 });
 
